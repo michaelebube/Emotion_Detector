@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from datetime import datetime
 import sqlite3
+import traceback
 from werkzeug.utils import secure_filename
 
 
@@ -74,6 +75,13 @@ try:
 except Exception as e:
     # TensorFlow not installed or failed to import. We'll keep model=None.
     print("TensorFlow not available or failed to import:", e)
+
+print("=" * 50)
+print("App startup complete!")
+print(f"Model loaded: {model is not None}")
+print(f"TensorFlow available: {tf is not None}")
+print(f"Upload folder: {UPLOAD_FOLDER}")
+print("=" * 50)
 
 
 @app.route("/")
@@ -146,7 +154,6 @@ def upload():
     
     except Exception as e:
         print(f"Upload error: {e}")
-        import traceback
         traceback.print_exc()
         return render_template("index.html", emotion=f"Upload failed: {str(e)}")
 
