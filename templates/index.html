@@ -28,7 +28,7 @@
 
     {% if emotion %}
     <h2>Detected Emotion: {{ emotion }}</h2>
-    <img src="{{ url_for('static', filename='../uploads/' + image) }}" alt="Uploaded Image">
+    <img src="{{ url_for('static', filename='uploads/' + image) }}" alt="Uploaded Image">
     {% endif %}
 </body>
 

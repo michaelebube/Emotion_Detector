@@ -1,5 +1,5 @@
 facial_emotion_data/
-*.h5
+
 *.hdf5
 *.pkl
 *.pth

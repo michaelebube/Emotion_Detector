@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, url_for
 import os
 import cv2
 import numpy as np
 from datetime import datetime
 import sqlite3
+from werkzeug.utils import secure_filename
 
 
 def init_db():
@@ -22,14 +23,22 @@ def init_db():
 
 
 # Initialize database automatically
+# Initialize database automatically
 init_db()
 
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
+# Store uploads inside the static folder so Flask can serve them easily
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# Allowed extensions
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Initialize database if not exists
 db = "database.db"
@@ -42,6 +51,27 @@ if not os.path.exists(db):
                          timestamp TEXT)"""
         )
 
+# Try to load a TensorFlow model if available. Import TF inside try so the
+# app can still start locally when TF isn't installed.
+MODEL_PATH = os.path.join(app.root_path, "face_emotionModel.h5")
+model = None
+tf = None
+try:
+    import tensorflow as _tf
+
+    tf = _tf
+    if os.path.exists(MODEL_PATH):
+        try:
+            model = tf.keras.models.load_model(MODEL_PATH)
+            print("Loaded model:", MODEL_PATH)
+        except Exception as e:
+            print("Model found but failed to load:", e)
+    else:
+        print("Model file not found at", MODEL_PATH)
+except Exception as e:
+    # TensorFlow not installed or failed to import. We'll keep model=None.
+    print("TensorFlow not available or failed to import:", e)
+
 
 @app.route("/")
 def home():
@@ -50,24 +80,52 @@ def home():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    file = request.files["image"]
-    if file:
-        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-        file.save(filepath)
+    file = request.files.get("image")
+    if not file:
+        return redirect(url_for("home"))
 
-        # Save upload record in database
-        with sqlite3.connect(db) as conn:
-            conn.execute(
-                "INSERT INTO uploads (filename, timestamp) VALUES (?, ?)",
-                (file.filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            )
-            conn.commit()
+    if not allowed_file(file.filename):
+        return render_template("index.html", emotion="Invalid file type")
 
-        # Placeholder prediction (no TensorFlow locally)
-        # Later, when deploying on Render, you’ll load your .h5 model there.
-        emotion = "Prediction pending (model not loaded locally)"
-        return render_template("index.html", emotion=emotion, image=file.filename)
-    return redirect("/")
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    # Save upload record in database
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO uploads (filename, timestamp) VALUES (?, ?)",
+            (filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+
+    # If the model is loaded, run a simple preprocessing + prediction path.
+    emotion = "Prediction pending (model not loaded)"
+    if model is not None and tf is not None:
+        try:
+            # Example preprocessing for fer2013-like models: grayscale 48x48
+            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                raise ValueError("Failed to read uploaded image")
+            img = cv2.resize(img, (48, 48))
+            img = img.astype("float32") / 255.0
+
+            # If model expects channels last with 1 channel
+            if len(model.input_shape) == 4 and model.input_shape[-1] == 1:
+                img = np.expand_dims(img, -1)
+
+            img = np.expand_dims(img, 0)
+            preds = model.predict(img)
+            idx = int(np.argmax(preds))
+            mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+            if 0 <= idx < len(mapping):
+                emotion = mapping[idx]
+            else:
+                emotion = f"Unknown prediction index {idx}"
+        except Exception as e:
+            emotion = f"Prediction error: {e}"
+
+    return render_template("index.html", emotion=emotion, image=filename)
 
 
 if __name__ == "__main__":
