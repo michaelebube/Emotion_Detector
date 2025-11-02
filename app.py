@@ -41,8 +41,10 @@ else:
 # Allowed extensions
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 # Initialize database if not exists
 db = "database.db"
@@ -64,6 +66,14 @@ try:
     import tensorflow as _tf
 
     tf = _tf
+    # Configure TensorFlow to use less memory
+    try:
+        physical_devices = tf.config.list_physical_devices("GPU")
+        if physical_devices:
+            tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    except:
+        pass  # No GPU or memory growth not supported
+
     if os.path.exists(MODEL_PATH):
         try:
             model = tf.keras.models.load_model(MODEL_PATH)
@@ -109,7 +119,7 @@ def upload():
         if not filename:
             print("Filename became empty after sanitization")
             return render_template("index.html", emotion="Invalid filename")
-            
+
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
         print(f"Saved file to: {filepath}")
@@ -126,6 +136,7 @@ def upload():
         emotion = "Prediction pending (model not loaded)"
         if model is not None and tf is not None:
             try:
+                print("Starting prediction...")
                 # Example preprocessing for fer2013-like models: grayscale 48x48
                 img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
                 if img is None:
@@ -139,19 +150,37 @@ def upload():
                         img = np.expand_dims(img, -1)
 
                     img = np.expand_dims(img, 0)
-                    preds = model.predict(img)
+
+                    # Use predict with smaller batch and verbose=0 to reduce memory
+                    print("Running model.predict()...")
+                    preds = model.predict(img, verbose=0)
+                    print(f"Prediction complete. Shape: {preds.shape}")
+
                     idx = int(np.argmax(preds))
-                    mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+                    mapping = [
+                        "angry",
+                        "disgust",
+                        "fear",
+                        "happy",
+                        "neutral",
+                        "sad",
+                        "surprise",
+                    ]
                     if 0 <= idx < len(mapping):
                         emotion = mapping[idx]
+                        print(f"Detected emotion: {emotion}")
                     else:
                         emotion = f"Unknown prediction index {idx}"
+
+                    # Clean up to free memory
+                    del img, preds
             except Exception as e:
                 print(f"Prediction error: {e}")
-                emotion = f"Prediction error: {e}"
+                traceback.print_exc()
+                emotion = f"Prediction error: {str(e)[:100]}"
 
         return render_template("index.html", emotion=emotion, image=filename)
-    
+
     except Exception as e:
         print(f"Upload error: {e}")
         traceback.print_exc()
