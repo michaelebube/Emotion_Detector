@@ -83,56 +83,72 @@ def home():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    file = request.files.get("image")
-    if not file:
-        print("No file received")
-        return redirect(url_for("home"))
+    try:
+        file = request.files.get("image")
+        if not file:
+            print("No file received")
+            return redirect(url_for("home"))
 
-    if not allowed_file(file.filename):
-        print(f"Invalid file type: {file.filename}")
-        return render_template("index.html", emotion="Invalid file type")
+        if not file.filename:
+            print("File has no filename")
+            return render_template("index.html", emotion="No file selected")
 
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-    print(f"Saved file to: {filepath}")
+        if not allowed_file(file.filename):
+            print(f"Invalid file type: {file.filename}")
+            return render_template("index.html", emotion="Invalid file type")
 
-    # Save upload record in database
-    with sqlite3.connect(db) as conn:
-        conn.execute(
-            "INSERT INTO uploads (filename, timestamp) VALUES (?, ?)",
-            (filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-        )
-        conn.commit()
+        filename = secure_filename(file.filename)
+        if not filename:
+            print("Filename became empty after sanitization")
+            return render_template("index.html", emotion="Invalid filename")
+            
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        print(f"Saved file to: {filepath}")
 
-    # If the model is loaded, run a simple preprocessing + prediction path.
-    emotion = "Prediction pending (model not loaded)"
-    if model is not None and tf is not None:
-        try:
-            # Example preprocessing for fer2013-like models: grayscale 48x48
-            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                emotion = "Failed to read uploaded image"
-            else:
-                img = cv2.resize(img, (48, 48))
-                img = img.astype("float32") / 255.0
+        # Save upload record in database
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "INSERT INTO uploads (filename, timestamp) VALUES (?, ?)",
+                (filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
 
-                # If model expects channels last with 1 channel
-                if len(model.input_shape) == 4 and model.input_shape[-1] == 1:
-                    img = np.expand_dims(img, -1)
-
-                img = np.expand_dims(img, 0)
-                preds = model.predict(img)
-                idx = int(np.argmax(preds))
-                mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
-                if 0 <= idx < len(mapping):
-                    emotion = mapping[idx]
+        # If the model is loaded, run a simple preprocessing + prediction path.
+        emotion = "Prediction pending (model not loaded)"
+        if model is not None and tf is not None:
+            try:
+                # Example preprocessing for fer2013-like models: grayscale 48x48
+                img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    emotion = "Failed to read uploaded image"
                 else:
-                    emotion = f"Unknown prediction index {idx}"
-        except Exception as e:
-            emotion = f"Prediction error: {e}"
+                    img = cv2.resize(img, (48, 48))
+                    img = img.astype("float32") / 255.0
 
-    return render_template("index.html", emotion=emotion, image=filename)
+                    # If model expects channels last with 1 channel
+                    if len(model.input_shape) == 4 and model.input_shape[-1] == 1:
+                        img = np.expand_dims(img, -1)
+
+                    img = np.expand_dims(img, 0)
+                    preds = model.predict(img)
+                    idx = int(np.argmax(preds))
+                    mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+                    if 0 <= idx < len(mapping):
+                        emotion = mapping[idx]
+                    else:
+                        emotion = f"Unknown prediction index {idx}"
+            except Exception as e:
+                print(f"Prediction error: {e}")
+                emotion = f"Prediction error: {e}"
+
+        return render_template("index.html", emotion=emotion, image=filename)
+    
+    except Exception as e:
+        print(f"Upload error: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template("index.html", emotion=f"Upload failed: {str(e)}")
 
 
 if __name__ == "__main__":
