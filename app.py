@@ -15,7 +15,11 @@ def init_db():
     CREATE TABLE IF NOT EXISTS uploads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filename TEXT NOT NULL,
-        timestamp TEXT NOT NULL
+        timestamp TEXT NOT NULL,
+        user_name TEXT,
+        user_email TEXT,
+        user_phone TEXT,
+        detected_emotion TEXT
     )
     """
     )
@@ -110,6 +114,17 @@ def home():
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
+        # Get user information
+        user_name = request.form.get("name", "").strip()
+        user_email = request.form.get("email", "").strip()
+        user_phone = request.form.get("phone", "").strip()
+
+        # Validate required fields
+        if not user_name or not user_email:
+            return render_template(
+                "index.html", emotion="Please provide name and email"
+            )
+
         file = request.files.get("image")
         if not file:
             print("No file received")
@@ -117,28 +132,38 @@ def upload():
 
         if not file.filename:
             print("File has no filename")
-            return render_template("index.html", emotion="No file selected")
+            return render_template(
+                "index.html",
+                emotion="No file selected",
+                user_name=user_name,
+                user_email=user_email,
+                user_phone=user_phone,
+            )
 
         if not allowed_file(file.filename):
             print(f"Invalid file type: {file.filename}")
-            return render_template("index.html", emotion="Invalid file type")
+            return render_template(
+                "index.html",
+                emotion="Invalid file type",
+                user_name=user_name,
+                user_email=user_email,
+                user_phone=user_phone,
+            )
 
         filename = secure_filename(file.filename)
         if not filename:
             print("Filename became empty after sanitization")
-            return render_template("index.html", emotion="Invalid filename")
+            return render_template(
+                "index.html",
+                emotion="Invalid filename",
+                user_name=user_name,
+                user_email=user_email,
+                user_phone=user_phone,
+            )
 
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
         print(f"Saved file to: {filepath}")
-
-        # Save upload record in database
-        with sqlite3.connect(db) as conn:
-            conn.execute(
-                "INSERT INTO uploads (filename, timestamp) VALUES (?, ?)",
-                (filename, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            )
-            conn.commit()
 
         # If the model is loaded, run a simple preprocessing + prediction path.
         emotion = "Prediction pending (model not loaded)"
@@ -187,7 +212,31 @@ def upload():
                 traceback.print_exc()
                 emotion = f"Prediction error: {str(e)[:100]}"
 
-        return render_template("index.html", emotion=emotion, image=filename)
+        # Save upload record with user info in database
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                """INSERT INTO uploads 
+                   (filename, timestamp, user_name, user_email, user_phone, detected_emotion) 
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    filename,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    user_name,
+                    user_email,
+                    user_phone if user_phone else None,
+                    emotion,
+                ),
+            )
+            conn.commit()
+
+        return render_template(
+            "index.html",
+            emotion=emotion,
+            image=filename,
+            user_name=user_name,
+            user_email=user_email,
+            user_phone=user_phone,
+        )
 
     except Exception as e:
         print(f"Upload error: {e}")
