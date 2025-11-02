@@ -63,20 +63,28 @@ MODEL_PATH = os.path.join(app.root_path, "face_emotionModel.h5")
 model = None
 tf = None
 try:
+    # Set TensorFlow environment variables BEFORE importing
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress TF logging
+    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # Disable oneDNN optimizations
+
     import tensorflow as _tf
 
     tf = _tf
-    # Configure TensorFlow to use less memory
+    # Configure TensorFlow to use less memory and threads
     try:
+        # Limit TensorFlow to use only 1 thread for operations
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+
         physical_devices = tf.config.list_physical_devices("GPU")
         if physical_devices:
             tf.config.experimental.set_memory_growth(physical_devices[0], True)
-    except:
-        pass  # No GPU or memory growth not supported
+    except Exception as e:
+        print(f"TF config warning: {e}")
 
     if os.path.exists(MODEL_PATH):
         try:
-            model = tf.keras.models.load_model(MODEL_PATH)
+            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
             print("Loaded model:", MODEL_PATH)
         except Exception as e:
             print("Model found but failed to load:", e)
@@ -151,9 +159,9 @@ def upload():
 
                     img = np.expand_dims(img, 0)
 
-                    # Use predict with smaller batch and verbose=0 to reduce memory
-                    print("Running model.predict()...")
-                    preds = model.predict(img, verbose=0)
+                    # Use direct call instead of predict() for lower memory usage
+                    print("Running inference...")
+                    preds = model(img, training=False).numpy()
                     print(f"Prediction complete. Shape: {preds.shape}")
 
                     idx = int(np.argmax(preds))
