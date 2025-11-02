@@ -1,0 +1,9 @@
+facial_emotion_data/
+*.h5
+*.hdf5
+*.pkl
+*.pth
+*.ckpt
+__pycache__/
+*.pyc
+.DS_Store
