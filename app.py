@@ -33,6 +33,9 @@ app = Flask(__name__)
 UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+    print(f"Created upload folder: {UPLOAD_FOLDER}")
+else:
+    print(f"Upload folder exists: {UPLOAD_FOLDER}")
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
@@ -82,14 +85,17 @@ def home():
 def upload():
     file = request.files.get("image")
     if not file:
+        print("No file received")
         return redirect(url_for("home"))
 
     if not allowed_file(file.filename):
+        print(f"Invalid file type: {file.filename}")
         return render_template("index.html", emotion="Invalid file type")
 
     filename = secure_filename(file.filename)
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
+    print(f"Saved file to: {filepath}")
 
     # Save upload record in database
     with sqlite3.connect(db) as conn:
@@ -106,22 +112,23 @@ def upload():
             # Example preprocessing for fer2013-like models: grayscale 48x48
             img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
             if img is None:
-                raise ValueError("Failed to read uploaded image")
-            img = cv2.resize(img, (48, 48))
-            img = img.astype("float32") / 255.0
-
-            # If model expects channels last with 1 channel
-            if len(model.input_shape) == 4 and model.input_shape[-1] == 1:
-                img = np.expand_dims(img, -1)
-
-            img = np.expand_dims(img, 0)
-            preds = model.predict(img)
-            idx = int(np.argmax(preds))
-            mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
-            if 0 <= idx < len(mapping):
-                emotion = mapping[idx]
+                emotion = "Failed to read uploaded image"
             else:
-                emotion = f"Unknown prediction index {idx}"
+                img = cv2.resize(img, (48, 48))
+                img = img.astype("float32") / 255.0
+
+                # If model expects channels last with 1 channel
+                if len(model.input_shape) == 4 and model.input_shape[-1] == 1:
+                    img = np.expand_dims(img, -1)
+
+                img = np.expand_dims(img, 0)
+                preds = model.predict(img)
+                idx = int(np.argmax(preds))
+                mapping = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+                if 0 <= idx < len(mapping):
+                    emotion = mapping[idx]
+                else:
+                    emotion = f"Unknown prediction index {idx}"
         except Exception as e:
             emotion = f"Prediction error: {e}"
 
